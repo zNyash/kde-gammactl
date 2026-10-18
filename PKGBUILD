@@ -8,11 +8,11 @@ license=("MIT")
 makedepends=("cargo")
 
 build() {
-    cd "$srcdir"
+    cd "$startdir"
     cargo build --release --locked
 }
 
 package() {
-    install -Dm755 "$srcdir/target/release/kde-gammactl" \
+    install -Dm755 "$startdir/target/release/kde-gammactl" \
         "$pkgdir/usr/bin/kde-gammactl"
 }
