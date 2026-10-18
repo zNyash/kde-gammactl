@@ -47,11 +47,10 @@ Your data is on the `~/.local/share/ns-gammactl/`, the original ICC profile is s
 If a display doesn't have an ICC profile, ns-gammactl will use a neutral sRGB baseline instead.
 
 If something goes wrong, these are the exit cores that can help you find out:
-
-- Failed to connect or communicate with the protocol.
-- KDE protocol not available.
-- Display not found or ambiguous.
-- Invalid ICC profile.
-- KWin rejected the profile.
-- Invalid arguments.
-- Failed to access the data directory.
+1: Failed to connect or communicate with the protocol.
+2: KDE protocol not available.
+3: Display not found or ambiguous.
+4: Invalid ICC profile.
+5: KWin rejected the profile.
+6: Invalid arguments.
+7: Failed to access the data directory.
