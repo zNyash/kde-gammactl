@@ -70,11 +70,16 @@ pub fn decode(data: &[u8]) -> Result<Curve, IccError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::curves::{generate, Adjustments};
+    use crate::curves::{generate, Adjustments, CurveKind};
 
     #[test]
     fn roundtrip() {
-        let c = generate(&Adjustments::new(0.7, 1.1, 1.3).unwrap(), 256).unwrap();
+        let c = generate(
+            CurveKind::Classic,
+            &Adjustments::new(0.7, 1.1, 1.3).unwrap(),
+            256,
+        )
+        .unwrap();
         let bytes = encode(&c).unwrap();
         assert_eq!(bytes.len(), 18 + 3 * 256 * 2);
         assert_eq!(decode(&bytes).unwrap(), c);

@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use clap::{Args, Parser, Subcommand};
 
 use crate::adjust;
-use crate::curves::Adjustments;
+use crate::curves::{Adjustments, CurveKind};
 use crate::error::Error;
 use crate::wayland::{self, OutputInfo};
 
@@ -30,27 +30,39 @@ struct Cli {
     output: Option<String>,
 }
 
-/// Same meaning and defaults as wl-gammactl.
 #[derive(Args, Clone)]
 struct Values {
-    /// Brightness (default 1)
+    /// Brightness (classic default 1, range: any finite value; midgray default 0, range: -1 to 1)
     #[arg(short = 'b', long, allow_negative_numbers = true)]
     brightness: Option<f64>,
-    /// Contrast (default 1)
+    /// Contrast (default 1; classic: any finite value, midgray range: 0.1 to 100)
     #[arg(short = 'c', long, allow_negative_numbers = true)]
     contrast: Option<f64>,
-    /// Gamma, must be > 0 (default 1)
+    /// Gamma (default 1; classic must be > 0, midgray range: 0.3 to 4.4)
     #[arg(short = 'g', long, allow_negative_numbers = true)]
     gamma: Option<f64>,
+    /// Curve formula (default classic; midgray defaults: contrast 1, brightness 0, gamma 1)
+    #[arg(long, value_enum, default_value = "classic")]
+    curve: CurveKind,
 }
 
 impl Values {
     fn adjustments(&self) -> Result<Adjustments, Error> {
-        Ok(Adjustments::new(
-            self.contrast.unwrap_or(1.0),
-            self.brightness.unwrap_or(1.0),
-            self.gamma.unwrap_or(1.0),
-        )?)
+        let neutral = self.curve.neutral();
+        let contrast = self.contrast.unwrap_or(neutral.contrast);
+        let brightness = self.brightness.unwrap_or(neutral.brightness);
+        let gamma = self.gamma.unwrap_or(neutral.gamma);
+        let adj = if self.curve == CurveKind::Classic {
+            Adjustments::new(contrast, brightness, gamma)?
+        } else {
+            Adjustments {
+                contrast,
+                brightness,
+                gamma,
+            }
+        };
+        self.curve.validate(&adj)?;
+        Ok(adj)
     }
 }
 
@@ -102,8 +114,18 @@ pub fn run() -> Result<(), Error> {
     let cli = Cli::parse();
 
     // Commands that never talk to the compositor.
-    if let Some(Command::Generate { values, baseline, out }) = &cli.command {
-        adjust::generate_to_file(baseline.as_deref(), &values.adjustments()?, out)?;
+    if let Some(Command::Generate {
+        values,
+        baseline,
+        out,
+    }) = &cli.command
+    {
+        adjust::generate_to_file(
+            values.curve,
+            baseline.as_deref(),
+            &values.adjustments()?,
+            out,
+        )?;
         println!("wrote {}", out.display());
         return Ok(());
     }
@@ -123,10 +145,14 @@ pub fn run() -> Result<(), Error> {
     match command {
         Command::Set { values, output } => {
             let adj = values.adjustments()?;
-            for o in adjust::set(&mut session, output.as_deref(), &adj)? {
+            for o in adjust::set(&mut session, output.as_deref(), values.curve, &adj)? {
                 println!(
-                    "{}: brightness {:.3}, contrast {:.3}, gamma {:.3}",
-                    o.label, adj.brightness, adj.contrast, adj.gamma
+                    "{}: {} curve, brightness {:.3}, contrast {:.3}, gamma {:.3}",
+                    o.label,
+                    values.curve.as_str(),
+                    adj.brightness,
+                    adj.contrast,
+                    adj.gamma
                 );
                 println!("  profile: {}", o.detail);
             }
@@ -159,7 +185,9 @@ pub fn run() -> Result<(), Error> {
             println!("KDE accepted the configuration for {}", info.label());
             println!(
                 "  profile: {}",
-                info.icc_profile_path.as_deref().unwrap_or("(none reported)")
+                info.icc_profile_path
+                    .as_deref()
+                    .unwrap_or("(none reported)")
             );
             println!("  source:  {}", info.source_label());
             if let (Ok(want), Some(got)) = (profile.canonicalize(), info.icc_profile_path.as_ref())
@@ -171,6 +199,70 @@ pub fn run() -> Result<(), Error> {
             Ok(())
         }
         Command::Generate { .. } => unreachable!("handled above"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn omitted_curve_is_classic() {
+        let omitted = Cli::try_parse_from(["kde-gammactl", "-c", "1.2"]).unwrap();
+        let explicit =
+            Cli::try_parse_from(["kde-gammactl", "--curve", "classic", "-c", "1.2"]).unwrap();
+        assert_eq!(omitted.values.curve, CurveKind::Classic);
+        assert_eq!(
+            omitted.values.adjustments().unwrap(),
+            explicit.values.adjustments().unwrap()
+        );
+    }
+
+    #[test]
+    fn midgray_defaults_are_used_when_adjustments_are_omitted() {
+        let cli = Cli::try_parse_from(["kde-gammactl", "--curve", "midgray", "-c", "1.2"]).unwrap();
+        assert_eq!(
+            cli.values.adjustments().unwrap(),
+            Adjustments {
+                contrast: 1.2,
+                brightness: 0.0,
+                gamma: 1.0
+            }
+        );
+    }
+
+    #[test]
+    fn curve_option_is_available_on_set_and_generate() {
+        let set = Cli::try_parse_from(["kde-gammactl", "set", "--curve", "midgray"]).unwrap();
+        assert!(matches!(
+            set.command,
+            Some(Command::Set {
+                values: Values {
+                    curve: CurveKind::Midgray,
+                    ..
+                },
+                ..
+            })
+        ));
+        let generate = Cli::try_parse_from([
+            "kde-gammactl",
+            "generate",
+            "--curve",
+            "midgray",
+            "--out",
+            "test.icc",
+        ])
+        .unwrap();
+        assert!(matches!(
+            generate.command,
+            Some(Command::Generate {
+                values: Values {
+                    curve: CurveKind::Midgray,
+                    ..
+                },
+                ..
+            })
+        ));
     }
 }
 
@@ -186,7 +278,10 @@ fn print_info(i: &OutputInfo, verbose: bool) {
         if i.enabled { "enabled" } else { "disabled" },
         hw
     );
-    println!("  profile: {}", i.icc_profile_path.as_deref().unwrap_or("(none)"));
+    println!(
+        "  profile: {}",
+        i.icc_profile_path.as_deref().unwrap_or("(none)")
+    );
     if verbose {
         println!("  source:  {}", i.source_label());
         if let Some(u) = &i.uuid {

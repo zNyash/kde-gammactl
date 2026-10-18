@@ -15,13 +15,18 @@ makepkg -si
 
 ## Usage
 
-You can just pass the arguments like this and this will set it up for all your displays:
+Pass the brightness, contrast and gamma values like this:
 
 ```bash
 kde-gammactl -b 0.4 -c 0.8 -g 0.9
 ```
 
-If it's not clear, b -> brightness, c -> contrast, g -> gamma (where gamma needs to be > 0)
+b -> brightness, c -> contrast and g -> gamma. The default curve is `classic`.
+To use the Gamma Panel formula instead, add `--curve midgray`:
+
+```bash
+kde-gammactl --curve midgray -b 0.2 -c 1.2 -g 1.1
+```
 
 ---
 
@@ -43,9 +48,13 @@ kde-gammactl reset
 
 ## Other
 
-The brightness, contrast and gamma adjustments use this formula:
+The classic formula is:
 
 `y = clamp(contrast * x^(1/gamma) + (brightness - 1), 0, 1).`
+
+The Gamma Panel formula is:
+
+`y = clamp((contrast * (x - 127/255) + 127/255)^(1/gamma) + brightness * 128/255, 0, 1).`
 
 Your data is on the `~/.local/share/kde-gammactl/`, the original ICC profile is saved the first time you make an adjustment so any other change you make always start from the original instead of stacking on top of the previous ones.
 

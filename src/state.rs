@@ -27,9 +27,16 @@ pub struct OutputState {
     pub baseline: Option<String>,
     /// Currently active generated profile.
     pub generated: Option<String>,
+    /// Curve formula used to generate the active profile.
+    #[serde(default = "default_curve")]
+    pub curve: String,
     pub contrast: f64,
     pub brightness: f64,
     pub gamma: f64,
+}
+
+fn default_curve() -> String {
+    "classic".into()
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -100,6 +107,32 @@ pub fn write_atomic(dest: &Path, data: &[u8]) -> Result<(), Error> {
 /// Filesystem-safe form of an output name or UUID.
 pub fn safe_name(s: &str) -> String {
     s.chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '.' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '.' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn older_output_state_defaults_to_classic_curve() {
+        let old = r#"{
+            "original_path": null,
+            "original_source": 0,
+            "baseline": null,
+            "generated": null,
+            "contrast": 1.0,
+            "brightness": 1.0,
+            "gamma": 1.0
+        }"#;
+        let state: OutputState = serde_json::from_str(old).unwrap();
+        assert_eq!(state.curve, "classic");
+    }
 }

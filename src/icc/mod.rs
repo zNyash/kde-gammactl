@@ -43,7 +43,9 @@ pub fn build_profile(baseline: Option<&[u8]>, curve: &Curve) -> Result<Vec<u8>, 
         .tag(&vcgt::SIGNATURE)
         .ok_or_else(|| IccError("generated profile lost its vcgt tag".into()))?;
     if &vcgt::decode(tag)? != curve {
-        return Err(IccError("generated vcgt does not match the requested curve".into()));
+        return Err(IccError(
+            "generated vcgt does not match the requested curve".into(),
+        ));
     }
     Ok(out)
 }
@@ -51,10 +53,15 @@ pub fn build_profile(baseline: Option<&[u8]>, curve: &Curve) -> Result<Vec<u8>, 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::curves::{generate, Adjustments};
+    use crate::curves::{generate, Adjustments, CurveKind};
 
     fn curve() -> Curve {
-        generate(&Adjustments::new(0.8, 0.9, 0.7).unwrap(), 256).unwrap()
+        generate(
+            CurveKind::Classic,
+            &Adjustments::new(0.8, 0.9, 0.7).unwrap(),
+            256,
+        )
+        .unwrap()
     }
 
     #[test]
@@ -64,23 +71,41 @@ mod tests {
         assert!(p.tag(b"wtpt").is_some());
         assert!(p.tag(b"rXYZ").is_some());
         assert!(p.tag(b"rTRC").is_some());
-        assert_eq!(vcgt::decode(p.tag(&vcgt::SIGNATURE).unwrap()).unwrap(), curve());
+        assert_eq!(
+            vcgt::decode(p.tag(&vcgt::SIGNATURE).unwrap()).unwrap(),
+            curve()
+        );
         // size field matches, 4-byte aligned
-        assert_eq!(u32::from_be_bytes(bytes[0..4].try_into().unwrap()) as usize, bytes.len());
+        assert_eq!(
+            u32::from_be_bytes(bytes[0..4].try_into().unwrap()) as usize,
+            bytes.len()
+        );
         assert_eq!(bytes.len() % 4, 0);
     }
 
     #[test]
     fn editing_preserves_other_tags_and_replaces_vcgt() {
         let first = build_profile(None, &curve()).unwrap();
-        let other = generate(&Adjustments::new(1.0, 1.0, 1.0).unwrap(), 256).unwrap();
+        let other = generate(
+            CurveKind::Classic,
+            &Adjustments::new(1.0, 1.0, 1.0).unwrap(),
+            256,
+        )
+        .unwrap();
         // Use the first output as a baseline that already has a vcgt.
         let second = build_profile(Some(&first), &other).unwrap();
 
         let a = Profile::parse(&first).unwrap();
         let b = Profile::parse(&second).unwrap();
-        for sig in [b"desc", b"cprt", b"wtpt", b"rXYZ", b"gXYZ", b"bXYZ", b"rTRC", b"gTRC", b"bTRC"] {
-            assert_eq!(a.tag(sig), b.tag(sig), "tag {:?} changed", std::str::from_utf8(sig));
+        for sig in [
+            b"desc", b"cprt", b"wtpt", b"rXYZ", b"gXYZ", b"bXYZ", b"rTRC", b"gTRC", b"bTRC",
+        ] {
+            assert_eq!(
+                a.tag(sig),
+                b.tag(sig),
+                "tag {:?} changed",
+                std::str::from_utf8(sig)
+            );
         }
         assert_eq!(vcgt::decode(b.tag(b"vcgt").unwrap()).unwrap(), other);
         // exactly one vcgt entry
