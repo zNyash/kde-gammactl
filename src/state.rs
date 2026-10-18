@@ -1,7 +1,7 @@
 //! Application data directory and persisted state (Phase 2 layout):
 //!
 //! ```text
-//! ~/.local/share/ns-gammactl/
+//! ~/.local/share/kde-gammactl/
 //! ├── profiles/
 //! │   ├── <output>-baseline.icc     immutable snapshot of the original profile
 //! │   └── generated/                profiles we generated (old ones are pruned)
@@ -53,7 +53,7 @@ impl Paths {
             )
             .join(".local/share"),
         };
-        let root = base.join("ns-gammactl");
+        let root = base.join("kde-gammactl");
         let generated = root.join("profiles/generated");
         fs::create_dir_all(&generated)
             .map_err(|e| Error::Io(format!("cannot create {}: {e}", generated.display())))?;

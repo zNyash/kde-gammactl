@@ -1,5 +1,5 @@
 [package]
-name = "ns-gammactl"
+name = "kde-gammactl"
 version = "1.0.0"
 edition = "2021"
 description = "Brightness, contrast and gamma control for KDE Plasma Wayland via ICC profiles"

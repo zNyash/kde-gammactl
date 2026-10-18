@@ -1,6 +1,6 @@
 //! Minimal ICC profile tag editor (Phase 2 + 4).
 //!
-//! Only what ns-gammactl needs: parse a profile's header and tag table, add or
+//! Only what kde-gammactl needs: parse a profile's header and tag table, add or
 //! replace the `vcgt` tag, and write a structurally valid profile back with
 //! rebuilt offsets and sizes. Every other tag is carried over byte-for-byte.
 

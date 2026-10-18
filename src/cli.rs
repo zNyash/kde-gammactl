@@ -9,12 +9,12 @@ use crate::wayland::{self, OutputInfo};
 
 #[derive(Parser)]
 #[command(
-    name = "ns-gammactl",
+    name = "kde-gammactl",
     version,
     about = "Brightness / contrast / gamma for KDE Plasma Wayland (via generated ICC profiles)",
     long_about = "Brightness / contrast / gamma for KDE Plasma Wayland (via generated ICC profiles).\n\n\
-Quick use:  ns-gammactl -b 0.4 -c 0.8 -g 0.7   (all displays; add -o DP-1 for one)\n\
-Reset:      ns-gammactl reset",
+Quick use:  kde-gammactl -b 0.4 -c 0.8 -g 0.7   (all displays; add -o DP-1 for one)\n\
+Reset:      kde-gammactl reset",
     arg_required_else_help = true,
     args_conflicts_with_subcommands = true
 )]
