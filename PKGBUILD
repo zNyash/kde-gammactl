@@ -1,5 +1,5 @@
 pkgname=kde-gammactl
-pkgver=1.0.0
+pkgver=1.1.0
 pkgrel=1
 pkgdesc="Brightness, contrast and gamma control for KDE Plasma Wayland via ICC profiles"
 arch=("x86_64")
