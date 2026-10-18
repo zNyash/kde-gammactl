@@ -15,6 +15,15 @@ makepkg -si
 
 ## Usage
 
+You can also open the app from your application menu or run:
+
+```bash
+kde-gammactl-gui
+```
+
+Choose a monitor or all monitors, select the curve, then adjust the sliders.
+Changes are applied when you press Apply. Reset restores the original profile.
+
 Pass the brightness, contrast and gamma values like this:
 
 ```bash

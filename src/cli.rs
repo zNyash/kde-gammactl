@@ -5,6 +5,7 @@ use clap::{Args, Parser, Subcommand};
 use crate::adjust;
 use crate::curves::{Adjustments, CurveKind};
 use crate::error::Error;
+use crate::state::{Paths, State};
 use crate::wayland::{self, OutputInfo};
 
 #[derive(Parser)]
@@ -108,6 +109,9 @@ enum Command {
         #[arg(long)]
         out: PathBuf,
     },
+    /// Show monitor and saved-adjustment information for the Qt interface
+    #[command(hide = true)]
+    GuiState,
 }
 
 pub fn run() -> Result<(), Error> {
@@ -173,6 +177,39 @@ pub fn run() -> Result<(), Error> {
             if !any {
                 eprintln!("no displays reported by KWin");
             }
+            Ok(())
+        }
+        Command::GuiState => {
+            let paths = Paths::new()?;
+            let saved = State::load(&paths)?;
+            let outputs: Vec<_> = session
+                .outputs()
+                .map(|output| {
+                    let info = &output.info;
+                    let label = info.label();
+                    let key = info.uuid.clone().unwrap_or_else(|| label.clone());
+                    let settings = saved.outputs.get(&key);
+                    serde_json::json!({
+                        "id": info.uuid.clone().unwrap_or_else(|| label.clone()),
+                        "name": label,
+                        "enabled": info.enabled,
+                        "model": match (&info.make, &info.model) {
+                            (Some(make), Some(model)) => format!("{make} {model}"),
+                            (Some(value), None) | (None, Some(value)) => value.clone(),
+                            (None, None) => String::new(),
+                        },
+                        "curve": settings.map(|s| s.curve.as_str()).unwrap_or("classic"),
+                        "brightness": settings.map(|s| s.brightness).unwrap_or(1.0),
+                        "contrast": settings.map(|s| s.contrast).unwrap_or(1.0),
+                        "gamma": settings.map(|s| s.gamma).unwrap_or(1.0),
+                        "adjusted": settings.is_some(),
+                    })
+                })
+                .collect();
+            println!(
+                "{}",
+                serde_json::to_string(&outputs).map_err(|e| Error::Io(e.to_string()))?
+            );
             Ok(())
         }
         Command::Status { output } => {

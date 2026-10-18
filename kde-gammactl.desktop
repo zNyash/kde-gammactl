@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Gamma Panel
+Comment=Adjust display brightness, contrast, and gamma
+Exec=kde-gammactl-gui
+Terminal=false
+Categories=Settings;HardwareSettings;
