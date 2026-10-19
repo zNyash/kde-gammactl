@@ -4,7 +4,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::curves::{self, Adjustments};
+use crate::curves::{self, Adjustments, CurveKind};
 use crate::error::Error;
 use crate::icc::{self, Profile};
 use crate::state::{safe_name, write_atomic, OutputState, Paths, State};
@@ -21,7 +21,9 @@ pub struct Outcome {
 }
 
 fn fnv1a(data: &[u8]) -> u32 {
-    data.iter().fold(0x811c_9dc5u32, |h, b| (h ^ u32::from(*b)).wrapping_mul(0x0100_0193))
+    data.iter().fold(0x811c_9dc5u32, |h, b| {
+        (h ^ u32::from(*b)).wrapping_mul(0x0100_0193)
+    })
 }
 
 /// Displays an adjustment applies to: the one named, or every enabled one.
@@ -46,8 +48,10 @@ fn state_key(info: &OutputInfo) -> String {
 
 /// Remove every generated profile of this display except `keep`.
 fn prune_generated(paths: &Paths, safe: &str, keep: Option<&Path>) {
-    let prefix = format!("{safe}_c");
-    let Ok(rd) = fs::read_dir(&paths.generated) else { return };
+    let prefix = format!("{safe}_");
+    let Ok(rd) = fs::read_dir(&paths.generated) else {
+        return;
+    };
     for entry in rd.flatten() {
         let p = entry.path();
         let name = entry.file_name().to_string_lossy().into_owned();
@@ -76,20 +80,26 @@ fn establish_entry(
         // is unknown, so fall back to sRGB for a later reset.
         (None, 0)
     } else {
-        (info.icc_profile_path.clone(), info.color_profile_source.unwrap_or(0))
+        (
+            info.icc_profile_path.clone(),
+            info.color_profile_source.unwrap_or(0),
+        )
     };
 
     let mut baseline = None;
     if original_source == SOURCE_ICC {
         if let Some(orig) = &original_path {
-            let bytes = fs::read(orig)
-                .map_err(|e| Error::BadProfile(format!("cannot read current profile {orig}: {e}")))?;
+            let bytes = fs::read(orig).map_err(|e| {
+                Error::BadProfile(format!("cannot read current profile {orig}: {e}"))
+            })?;
             Profile::parse(&bytes).map_err(|e| {
                 Error::BadProfile(format!(
                     "current profile {orig} cannot be used as a baseline: {e}"
                 ))
             })?;
-            let snap = paths.profiles.join(format!("{}-baseline.icc", safe_name(key)));
+            let snap = paths
+                .profiles
+                .join(format!("{}-baseline.icc", safe_name(key)));
             write_atomic(&snap, &bytes)?;
             baseline = Some(snap.to_string_lossy().into_owned());
         }
@@ -100,6 +110,7 @@ fn establish_entry(
         original_source,
         baseline,
         generated: None,
+        curve: CurveKind::Classic.as_str().to_owned(),
         contrast: 1.0,
         brightness: 1.0,
         gamma: 1.0,
@@ -109,9 +120,10 @@ fn establish_entry(
 pub fn set(
     session: &mut Session,
     wanted: Option<&str>,
+    kind: CurveKind,
     adj: &Adjustments,
 ) -> Result<Vec<Outcome>, Error> {
-    let curve = curves::generate(adj, LUT_ENTRIES)?;
+    let curve = curves::generate(kind, adj, LUT_ENTRIES)?;
     let paths = Paths::new()?;
     let mut state = State::load(&paths)?;
     let mut results = Vec::new();
@@ -122,9 +134,12 @@ pub fn set(
         let safe = safe_name(&key);
 
         let current = info.icc_profile_path.as_deref().map(PathBuf::from);
-        let ours = current.as_ref().is_some_and(|p| p.starts_with(&paths.generated));
+        let ours = current
+            .as_ref()
+            .is_some_and(|p| p.starts_with(&paths.generated));
 
         let mut entry = establish_entry(&paths, &key, &info, ours, state.outputs.get(&key))?;
+        entry.curve = kind.as_str().to_owned();
 
         // The baseline is always read from the immutable snapshot, never from
         // a previously generated profile.
@@ -137,7 +152,8 @@ pub fn set(
         let bytes = icc::build_profile(baseline_bytes.as_deref(), &curve)?;
 
         let file = paths.generated.join(format!(
-            "{safe}_c{:.3}_b{:.3}_g{:.3}_{:08x}.icc",
+            "{safe}_{}_c{:.3}_b{:.3}_g{:.3}_{:08x}.icc",
+            kind.as_str(),
             adj.contrast,
             adj.brightness,
             adj.gamma,
@@ -224,15 +240,16 @@ pub fn reset(session: &mut Session, wanted: Option<&str>) -> Result<Vec<Outcome>
 
 /// Write a generated profile to `out` without touching the compositor.
 pub fn generate_to_file(
+    kind: CurveKind,
     baseline: Option<&Path>,
     adj: &Adjustments,
     out: &Path,
 ) -> Result<(), Error> {
-    let curve = curves::generate(adj, LUT_ENTRIES)?;
+    let curve = curves::generate(kind, adj, LUT_ENTRIES)?;
     let base = match baseline {
-        Some(p) => Some(
-            fs::read(p).map_err(|e| Error::BadProfile(format!("{}: {e}", p.display())))?,
-        ),
+        Some(p) => {
+            Some(fs::read(p).map_err(|e| Error::BadProfile(format!("{}: {e}", p.display())))?)
+        }
         None => None,
     };
     let bytes = icc::build_profile(base.as_deref(), &curve)?;

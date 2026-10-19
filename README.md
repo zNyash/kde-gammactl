@@ -21,7 +21,24 @@ You can just pass the arguments like this and this will set it up for all your d
 kde-gammactl -b 0.4 -c 0.8 -g 0.9
 ```
 
-If it's not clear, b -> brightness, c -> contrast, g -> gamma (where gamma needs to be > 0)
+If it's not clear, b -> brightness, c -> contrast, g -> gamma.
+
+The default `classic` curve preserves the original formula and parameter defaults:
+
+```text
+y = clamp(C * x^(1/G) + (B - 1), 0, 1)
+```
+
+You can select the mid-grey-pivot `midgray` curve instead:
+
+```bash
+kde-gammactl --curve midgray -c 1.2 -b 0.1 -g 1.8
+```
+
+`midgray` defaults to contrast 1, brightness 0 and gamma 1; its supported
+ranges are contrast 0.1–100, brightness -1–1 and gamma 0.3–4.4. `classic`
+defaults to 1 for all three settings and requires only that gamma is positive.
+The curve option is also available to the `set` and `generate` commands.
 
 ---
 
@@ -43,9 +60,13 @@ kde-gammactl reset
 
 ## Other
 
-The brightness, contrast and gamma adjustments use this formula:
+The classic curve uses this formula:
 
 `y = clamp(contrast * x^(1/gamma) + (brightness - 1), 0, 1).`
+
+The midgray curve pivots contrast at `127/255`, applies gamma afterward and
+then adds brightness as an offset of `128/255` per brightness unit. Each run
+uses the selected curve; omitting `--curve` always selects `classic`.
 
 Your data is on the `~/.local/share/kde-gammactl/`, the original ICC profile is saved the first time you make an adjustment so any other change you make always start from the original instead of stacking on top of the previous ones.
 

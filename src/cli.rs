@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use clap::{Args, Parser, Subcommand};
 
 use crate::adjust;
-use crate::curves::Adjustments;
+use crate::curves::{Adjustments, CurveKind};
 use crate::error::Error;
 use crate::wayland::{self, OutputInfo};
 
@@ -30,27 +30,36 @@ struct Cli {
     output: Option<String>,
 }
 
-/// Same meaning and defaults as wl-gammactl.
 #[derive(Args, Clone)]
 struct Values {
-    /// Brightness (default 1)
+    /// Brightness (classic default 1; midgray default 0, range -1..1)
     #[arg(short = 'b', long, allow_negative_numbers = true)]
     brightness: Option<f64>,
-    /// Contrast (default 1)
+    /// Contrast (classic default 1; midgray default 1, range 0.1..100)
     #[arg(short = 'c', long, allow_negative_numbers = true)]
     contrast: Option<f64>,
-    /// Gamma, must be > 0 (default 1)
+    /// Gamma (classic must be > 0, default 1; midgray range 0.3..4.4, default 1)
     #[arg(short = 'g', long, allow_negative_numbers = true)]
     gamma: Option<f64>,
+    /// Curve formula and parameter ranges (default: classic)
+    #[arg(long, value_enum, default_value = "classic")]
+    curve: CurveKind,
 }
 
 impl Values {
+    fn kind(&self) -> CurveKind {
+        self.curve
+    }
+
     fn adjustments(&self) -> Result<Adjustments, Error> {
-        Ok(Adjustments::new(
-            self.contrast.unwrap_or(1.0),
-            self.brightness.unwrap_or(1.0),
-            self.gamma.unwrap_or(1.0),
-        )?)
+        let neutral = self.curve.neutral();
+        let adjustments = Adjustments::new(
+            self.contrast.unwrap_or(neutral.contrast),
+            self.brightness.unwrap_or(neutral.brightness),
+            self.gamma.unwrap_or(neutral.gamma),
+        )?;
+        self.curve.validate(&adjustments)?;
+        Ok(adjustments)
     }
 }
 
@@ -102,8 +111,18 @@ pub fn run() -> Result<(), Error> {
     let cli = Cli::parse();
 
     // Commands that never talk to the compositor.
-    if let Some(Command::Generate { values, baseline, out }) = &cli.command {
-        adjust::generate_to_file(baseline.as_deref(), &values.adjustments()?, out)?;
+    if let Some(Command::Generate {
+        values,
+        baseline,
+        out,
+    }) = &cli.command
+    {
+        adjust::generate_to_file(
+            values.kind(),
+            baseline.as_deref(),
+            &values.adjustments()?,
+            out,
+        )?;
         println!("wrote {}", out.display());
         return Ok(());
     }
@@ -123,13 +142,18 @@ pub fn run() -> Result<(), Error> {
     match command {
         Command::Set { values, output } => {
             let adj = values.adjustments()?;
-            for o in adjust::set(&mut session, output.as_deref(), &adj)? {
+            for o in adjust::set(&mut session, output.as_deref(), values.kind(), &adj)? {
                 println!(
-                    "{}: brightness {:.3}, contrast {:.3}, gamma {:.3}",
-                    o.label, adj.brightness, adj.contrast, adj.gamma
+                    "{}: curve {}, brightness {:.3}, contrast {:.3}, gamma {:.3}",
+                    o.label,
+                    values.kind().as_str(),
+                    adj.brightness,
+                    adj.contrast,
+                    adj.gamma
                 );
                 println!("  profile: {}", o.detail);
             }
+
             Ok(())
         }
         Command::Reset { output } => {
@@ -159,7 +183,9 @@ pub fn run() -> Result<(), Error> {
             println!("KDE accepted the configuration for {}", info.label());
             println!(
                 "  profile: {}",
-                info.icc_profile_path.as_deref().unwrap_or("(none reported)")
+                info.icc_profile_path
+                    .as_deref()
+                    .unwrap_or("(none reported)")
             );
             println!("  source:  {}", info.source_label());
             if let (Ok(want), Some(got)) = (profile.canonicalize(), info.icc_profile_path.as_ref())
@@ -186,7 +212,10 @@ fn print_info(i: &OutputInfo, verbose: bool) {
         if i.enabled { "enabled" } else { "disabled" },
         hw
     );
-    println!("  profile: {}", i.icc_profile_path.as_deref().unwrap_or("(none)"));
+    println!(
+        "  profile: {}",
+        i.icc_profile_path.as_deref().unwrap_or("(none)")
+    );
     if verbose {
         println!("  source:  {}", i.source_label());
         if let Some(u) = &i.uuid {
@@ -195,5 +224,69 @@ fn print_info(i: &OutputInfo, verbose: bool) {
         if let Some(s) = &i.serial {
             println!("  serial:  {s}");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    fn parse(args: &[&str]) -> Values {
+        match Cli::try_parse_from(args).unwrap().command {
+            Some(Command::Set { values, .. }) => values,
+            None => Cli::try_parse_from(args).unwrap().values,
+            _ => panic!("unexpected command"),
+        }
+    }
+
+    #[test]
+    fn omitted_curve_matches_explicit_classic() {
+        let default = parse(&["kde-gammactl", "-b", "0.8", "-c", "1.2", "-g", "0.9"]);
+        let explicit = parse(&[
+            "kde-gammactl",
+            "--curve",
+            "classic",
+            "-b",
+            "0.8",
+            "-c",
+            "1.2",
+            "-g",
+            "0.9",
+        ]);
+        assert_eq!(default.kind(), explicit.kind());
+        assert_eq!(
+            default.adjustments().unwrap(),
+            explicit.adjustments().unwrap()
+        );
+    }
+
+    #[test]
+    fn midgray_uses_its_neutral_brightness_for_missing_values() {
+        let values = parse(&["kde-gammactl", "--curve", "midgray", "-c", "1.2"]);
+        let adj = values.adjustments().unwrap();
+        assert_eq!(adj.brightness, 0.0);
+        assert_eq!(adj.gamma, 1.0);
+    }
+
+    #[test]
+    fn curve_option_is_available_for_set_and_generate() {
+        assert_eq!(
+            parse(&["kde-gammactl", "set", "--curve", "midgray"]).kind(),
+            CurveKind::Midgray
+        );
+        let generate = Cli::try_parse_from([
+            "kde-gammactl",
+            "generate",
+            "--curve",
+            "midgray",
+            "--out",
+            "test.icc",
+        ])
+        .unwrap();
+        assert!(matches!(
+            generate.command,
+            Some(Command::Generate { values, .. }) if values.kind() == CurveKind::Midgray
+        ));
     }
 }
